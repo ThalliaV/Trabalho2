@@ -1,1 +1,687 @@
 
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, Alert, PermissionsAndroid, Platform, Modal, TextInput, ScrollView } from 'react-native';
+import { launchImageLibrary } from 'react-native-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
+
+const ArtesComunidade = () => {
+  const [artes, setArtes] = useState([]);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalDetalhesVisible, setModalDetalhesVisible] = useState(false);
+  const [arteSelecionada, setArteSelecionada] = useState(null);
+  const [novaArte, setNovaArte] = useState({ titulo: '', descricao: '', imagem: null
+  });
+
+  // Carregar artes salvas
+  const carregarArtes = async () => {
+    try {
+      const artesSalvas = await AsyncStorage.getItem('artesComunidade');
+      if (artesSalvas) {
+        setArtes(JSON.parse(artesSalvas));
+      }
+    } catch (error) {
+      console.error('Erro ao carregar artes:', error);
+    }
+  };
+
+  // Salvar artes
+  const salvarArtes = async (novasArtes) => {
+    try {
+      await AsyncStorage.setItem('artesComunidade', JSON.stringify(novasArtes));
+    } catch (error) {
+      console.error('Erro ao salvar artes:', error);
+    }
+  };
+
+  // Solicitar permissões
+  const solicitarPermissao = async () => {
+    if (Platform.OS === 'android') {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
+          {
+            title: 'Permissão de Acesso à Galeria',
+            message: 'Este app precisa acessar sua galeria para selecionar imagens',
+            buttonNeutral: 'Perguntar depois',
+            buttonNegative: 'Cancelar',
+            buttonPositive: 'OK',
+          }
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } catch (err) {
+        console.warn(err);
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Abrir galeria
+  const abrirGaleria = async () => {
+    const permissaoConcedida = await solicitarPermissao();
+    
+    if (!permissaoConcedida) {
+      Alert.alert('Permissão Negada', 'Não é possível acessar a galeria sem permissão');
+      return;
+    }
+
+    const options = {
+      mediaType: 'photo',
+      includeBase64: false,
+      maxHeight: 2000,
+      maxWidth: 2000,
+      quality: 0.8,
+    };
+
+    launchImageLibrary(options, (response) => {
+      if (response.didCancel) {
+        console.log('Usuário cancelou a seleção');
+      } else if (response.error) {
+        Alert.alert('Erro', 'Erro ao selecionar imagem');
+        console.log('ImagePicker Error: ', response.error);
+      } else if (response.assets && response.assets[0]) {
+        const imagemSelecionada = response.assets[0];
+        setNovaArte({
+          ...novaArte,
+          imagem: {
+            uri: imagemSelecionada.uri,
+            type: imagemSelecionada.type,
+            name: imagemSelecionada.fileName || 'imagem.jpg',
+          }
+        });
+      }
+    });
+  };
+
+  // Adicionar nova arte
+  const adicionarArte = async () => {
+    if (!novaArte.titulo || !novaArte.imagem) {
+      Alert.alert('Atenção', 'Título e imagem são obrigatórios');
+      return;
+    }
+
+    try {
+      const novaArteCompleta = {
+        id: Date.now().toString(),
+        titulo: novaArte.titulo,
+        descricao: novaArte.descricao,
+        imagem: novaArte.imagem,
+        dataCriacao: new Date().toISOString(),
+        curtidas: 0,
+        comentarios: []
+      };
+
+      const novasArtes = [novaArteCompleta, ...artes];
+      await salvarArtes(novasArtes);
+      setArtes(novasArtes);
+      setModalVisible(false);
+      limparFormulario();
+      Alert.alert('Sucesso', 'Arte compartilhada com a comunidade!');
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível compartilhar a arte');
+    }
+  };
+
+  // Curtir arte
+  const curtirArte = async (id) => {
+    try {
+      const novasArtes = artes.map(arte =>
+        arte.id === id ? { ...arte, curtidas: arte.curtidas + 1 } : arte
+      );
+      await salvarArtes(novasArtes);
+      setArtes(novasArtes);
+    } catch (error) {
+      console.error('Erro ao curtir:', error);
+    }
+  };
+
+  // Adicionar comentário
+  const adicionarComentario = async (id, comentario) => {
+    if (!comentario.trim()) return;
+
+    try {
+      const novasArtes = artes.map(arte =>
+        arte.id === id
+          ? {
+              ...arte,
+              comentarios: [
+                ...arte.comentarios,
+                {
+                  id: Date.now().toString(),
+                  texto: comentario,
+                  data: new Date().toISOString()
+                }
+              ]
+            }
+          : arte
+      );
+      await salvarArtes(novasArtes);
+      setArtes(novasArtes);
+    } catch (error) {
+      console.error('Erro ao comentar:', error);
+    }
+  };
+
+  // Excluir arte
+  const excluirArte = async (id) => {
+    Alert.alert(
+      'Excluir Arte',
+      'Tem certeza que deseja excluir esta arte?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const novasArtes = artes.filter(arte => arte.id !== id);
+              await salvarArtes(novasArtes);
+              setArtes(novasArtes);
+              setModalDetalhesVisible(false);
+              Alert.alert('Sucesso', 'Arte excluída!');
+            } catch (error) {
+              Alert.alert('Erro', 'Não foi possível excluir a arte');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Limpar formulário
+  const limparFormulario = () => {
+    setNovaArte({
+      titulo: '',
+      descricao: '',
+      imagem: null
+    });
+  };
+
+  // Abrir detalhes da arte
+  const abrirDetalhes = (arte) => {
+    setArteSelecionada(arte);
+    setModalDetalhesVisible(true);
+  };
+
+  // Carregar artes ao iniciar
+  useEffect(() => {
+    carregarArtes();
+  }, []);
+
+  const renderArte = ({ item }) => (
+    <TouchableOpacity style={styles.cardArte} onPress={() => abrirDetalhes(item)}>
+      <Image source={{ uri: item.imagem.uri }} style={styles.imagemArte} />
+      <View style={styles.infoArte}>
+        <Text style={styles.tituloArte}>{item.titulo}</Text>
+        <Text style={styles.descricaoArte} numberOfLines={2}>
+          {item.descricao || 'Sem descrição'}
+        </Text>
+        <View style={styles.interacoes}>
+          <View style={styles.curtidaContainer}>
+            <Ionicons name="heart" size={16} color="#ff6b6b" />
+            <Text style={styles.curtidaTexto}>{item.curtidas}</Text>
+          </View>
+          <View style={styles.comentarioContainer}>
+            <Ionicons name="chatbubble" size={16} color="#64369d" />
+            <Text style={styles.comentarioTexto}>{item.comentarios.length}</Text>
+          </View>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.titulo}>Artes da Comunidade</Text>
+      <Text style={styles.subtitulo}>
+        Compartilhe suas criações e veja as dos outros!
+      </Text>
+
+      
+      <TouchableOpacity style={styles.botaoAdicionar} onPress={() => setModalVisible(true)}>
+        <Ionicons name="add" size={24} color="white" />
+        <Text style={styles.textoBotaoAdicionar}>Compartilhar Arte</Text>
+      </TouchableOpacity>
+
+      
+      <FlatList
+        data={artes}
+        renderItem={renderArte}
+        keyExtractor={item => item.id}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.listaConteudo}
+        ListEmptyComponent={
+          <View style={styles.vazioContainer}>
+            <Ionicons name="images" size={64} color="#ccc" />
+            <Text style={styles.textoVazio}>Nenhuma arte compartilhada ainda</Text>
+            <Text style={styles.textoVazioSub}>
+              Seja o primeiro a compartilhar uma criação!
+            </Text>
+          </View>
+        }
+      />
+
+      {/* Modal Adicionar Arte */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitulo}>Compartilhar Arte</Text>
+
+            {novaArte.imagem ? (
+              <View style={styles.imagemPreviewContainer}>
+                <Image source={{ uri: novaArte.imagem.uri }} style={styles.imagemPreview} />
+                <TouchableOpacity
+                  style={styles.botaoTrocarImagem}
+                  onPress={abrirGaleria}
+                >
+                  <Text style={styles.textoBotaoTrocar}>Trocar Imagem</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.botaoSelecionarImagem} onPress={abrirGaleria}>
+                <Ionicons name="image" size={48} color="#64369d" />
+                <Text style={styles.textoBotaoSelecionar}>Selecionar da Galeria</Text>
+              </TouchableOpacity>
+            )}
+
+            <TextInput
+              style={styles.input}
+              placeholder="Título da arte *"
+              value={novaArte.titulo}
+              onChangeText={(text) => setNovaArte({ ...novaArte, titulo: text })}
+            />
+
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              placeholder="Descrição (opcional)"
+              value={novaArte.descricao}
+              onChangeText={(text) => setNovaArte({ ...novaArte, descricao: text })}
+              multiline
+              numberOfLines={3}
+            />
+
+            <View style={styles.modalBotoes}>
+              <TouchableOpacity
+                style={[styles.botaoModal, styles.botaoCancelar]}
+                onPress={() => {
+                  setModalVisible(false);
+                  limparFormulario();
+                }}
+              >
+                <Text style={styles.textoBotaoCancelar}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.botaoModal, styles.botaoSalvar]}
+                onPress={adicionarArte}
+              >
+                <Text style={styles.textoBotaoSalvar}>Compartilhar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Detalhes da Arte */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalDetalhesVisible}
+        onRequestClose={() => setModalDetalhesVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalDetalhesContent}>
+            {arteSelecionada && (
+              <ScrollView>
+                <Image
+                  source={{ uri: arteSelecionada.imagem.uri }}
+                  style={styles.imagemDetalhes}
+                />
+                
+                <View style={styles.detalhesConteudo}>
+                  <Text style={styles.tituloDetalhes}>{arteSelecionada.titulo}</Text>
+                  <Text style={styles.descricaoDetalhes}>
+                    {arteSelecionada.descricao || 'Sem descrição'}
+                  </Text>
+                  
+                  <View style={styles.interacoesDetalhes}>
+                    <TouchableOpacity 
+                      style={styles.botaoInteracao}
+                      onPress={() => curtirArte(arteSelecionada.id)}
+                    >
+                      <Ionicons name="heart" size={20} color="#ff6b6b" />
+                      <Text style={styles.textoInteracao}>
+                        Curtir ({arteSelecionada.curtidas})
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={styles.botaoInteracao}
+                      onPress={() => excluirArte(arteSelecionada.id)}
+                    >
+                      <Ionicons name="trash" size={20} color="#ff6b6b" />
+                      <Text style={styles.textoInteracao}>Excluir</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Comentários */}
+                  <View style={styles.comentariosSection}>
+                    <Text style={styles.comentariosTitulo}>
+                      Comentários ({arteSelecionada.comentarios.length})
+                    </Text>
+                    
+                    {arteSelecionada.comentarios.map(comentario => (
+                      <View key={comentario.id} style={styles.comentarioItem}>
+                        <Text style={styles.comentarioTexto}>{comentario.texto}</Text>
+                        <Text style={styles.comentarioData}>
+                          {new Date(comentario.data).toLocaleDateString('pt-BR')}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </ScrollView>
+            )}
+            
+            <TouchableOpacity
+              style={styles.botaoFecharDetalhes}
+              onPress={() => setModalDetalhesVisible(false)}
+            >
+              <Text style={styles.textoBotaoFechar}>Fechar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+    padding: 10,
+  },
+  titulo: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#64369d',
+    textAlign: 'center',
+    marginVertical: 10,
+  },
+  subtitulo: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  botaoAdicionar: {
+    backgroundColor: '#64369d',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 20,
+  },
+  textoBotaoAdicionar: {
+    color: 'white',
+    fontWeight: 'bold',
+    marginLeft: 10,
+    fontSize: 16,
+  },
+  listaConteudo: {
+    paddingBottom: 20,
+  },
+  cardArte: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    overflow: 'hidden',
+  },
+  imagemArte: {
+    width: '100%',
+    height: 200,
+    resizeMode: 'cover',
+  },
+  infoArte: {
+    padding: 15,
+  },
+  tituloArte: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#64369d',
+    marginBottom: 5,
+  },
+  descricaoArte: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 10,
+  },
+  interacoes: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  curtidaContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  curtidaTexto: {
+    marginLeft: 5,
+    color: '#ff6b6b',
+    fontWeight: 'bold',
+  },
+  comentarioContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  comentarioTexto: {
+    marginLeft: 5,
+    color: '#64369d',
+    fontWeight: 'bold',
+  },
+  vazioContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  textoVazio: {
+    fontSize: 18,
+    color: '#999',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  textoVazioSub: {
+    fontSize: 14,
+    color: '#ccc',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    width: '90%',
+    maxHeight: '80%',
+  },
+  modalDetalhesContent: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    width: '95%',
+    maxHeight: '85%',
+  },
+  modalTitulo: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#64369d',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  botaoSelecionarImagem: {
+    borderWidth: 2,
+    borderColor: '#64369d',
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  textoBotaoSelecionar: {
+    color: '#64369d',
+    fontWeight: 'bold',
+    marginTop: 10,
+    fontSize: 16,
+  },
+  imagemPreviewContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  imagemPreview: {
+    width: 200,
+    height: 200,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  botaoTrocarImagem: {
+    backgroundColor: '#f0f0f0',
+    padding: 10,
+    borderRadius: 8,
+  },
+  textoBotaoTrocar: {
+    color: '#64369d',
+    fontWeight: 'bold',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 15,
+    fontSize: 16,
+  },
+  textArea: {
+    height: 80,
+    textAlignVertical: 'top',
+  },
+  modalBotoes: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  botaoModal: {
+    padding: 12,
+    borderRadius: 8,
+    minWidth: 100,
+    alignItems: 'center',
+  },
+  botaoSalvar: {
+    backgroundColor: '#64369d',
+  },
+  botaoCancelar: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  textoBotaoSalvar: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  textoBotaoCancelar: {
+    color: '#666',
+    fontWeight: 'bold',
+  },
+  imagemDetalhes: {
+    width: '100%',
+    height: 300,
+    resizeMode: 'cover',
+  },
+  detalhesConteudo: {
+    padding: 20,
+  },
+  tituloDetalhes: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#64369d',
+    marginBottom: 10,
+  },
+  descricaoDetalhes: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 20,
+    lineHeight: 22,
+  },
+  interacoesDetalhes: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 20,
+    paddingVertical: 15,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#f0f0f0',
+  },
+  botaoInteracao: {
+    alignItems: 'center',
+    padding: 10,
+  },
+  textoInteracao: {
+    marginTop: 5,
+    color: '#64369d',
+    fontWeight: 'bold',
+  },
+  comentariosSection: {
+    marginTop: 10,
+  },
+  comentariosTitulo: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#64369d',
+    marginBottom: 15,
+  },
+  comentarioItem: {
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  comentarioTexto: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 5,
+  },
+  comentarioData: {
+    fontSize: 12,
+    color: '#999',
+  },
+  botaoFecharDetalhes: {
+    backgroundColor: '#64369d',
+    padding: 15,
+    alignItems: 'center',
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  textoBotaoFechar: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+});
+
+export default ArtesComunidade;
