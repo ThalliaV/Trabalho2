@@ -7,7 +7,7 @@ export default function Home({navigation}){
   
   return (
     <View style={styles.container}>
-      <Image style={styles.imagem} source={require('./src/assets/morg.png')}>
+      <Image style={styles.imagem} source={require('../assets/morg.png')}>
       </Image>
       <Text style={styles.text1}>Bem vindo(a) a Biblioteca mariposa!</Text>
       <Text style={styles.text2}>Aqui você vai encontrar informações sobre:</Text>
@@ -19,6 +19,14 @@ export default function Home({navigation}){
 
       <View style={styles.buttonContainer}>
         <Button title="Temporada" onPress={()=> navigation.navigate('Temporada')}/>
+      </View>
+
+      <View style={styles.buttonContainer}>
+        <Button title="Calendario" onPress={()=> navigation.navigate('Calendario')}/>
+      </View>
+
+      <View style={styles.buttonContainer}>
+        <Button title="Artes da Comunidade" onPress={()=> navigation.navigate('ArtesComunidade')}/>
       </View>
 
       <Pressable style={({ pressed }) => [styles.likeButton, pressed && { opacity: 0.6 }]}
